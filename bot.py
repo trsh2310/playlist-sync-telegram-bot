@@ -11,6 +11,9 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
+from config import TELEGRAM_TOKEN
+from playlist_manager import PlaylistManager
+
 yandex_names = ['yandex', 'Yandex', 'YANDEX',
                 'yandex music', 'yandex.music', 'Yandex music', 'Yandex Music', 'Yandex.Music',
                 'яндекс', 'Яндекс', 'ЯНДЕКС',
@@ -34,8 +37,9 @@ zvooq_names = ['zvooq', 'Zvooq', 'ZVOOQ',
 add_acc_mess = ["Добавить аккаунт", "Добавить еще аккаунт",
                 "добавить аккаунт", "добавить еще аккаунт"]
 
-TOKEN = '7504141984:AAHGtezfdoF49gVuzRNWalACWUtFAl6jLKQ'
+TOKEN = TELEGRAM_TOKEN
 dp = Dispatcher()
+playlist_manager = PlaylistManager()
 
 #обработка команд
 
@@ -110,6 +114,17 @@ async def message_done_handler(message: Message) -> None:
 async def message_add_vk_acc_handler(message: Message) -> None:
     await vk_login(message)
 
+@dp.message(lambda message: message.text.startswith('https://oauth.vk.com/blank.html'))
+async def save_token(message: Message):
+    result = playlist_manager.save_token('vk', message.from_user.id, message.text)
+    await message.reply(result)
+
+
+'''@dp.message(lambda message: 'vk.com/music/playlist' in message.text)
+async def get_playlist(message: Message):
+    result = playlist_manager.fetch_playlist('vk', message.from_user.id, message.text)
+    await message.reply(result)'''
+
 @dp.message(F.text.in_(yandex_names))
 async def message_add_yandex_acc_handler(message: Message) -> None:
     await yandex_login(message)
@@ -141,7 +156,8 @@ async def add_acc(message):
     await message.answer(text_add_acc, reply_markup=keyboard_add_acc.as_markup(resize_keyboard=True))
 
 async def vk_login(message):
-    await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в вк")
+    auth_url = playlist_manager.get_auth_url('vk')
+    await message.reply(f"Лови ссылку для авторизации:\n{auth_url}")
     await extra_acc(message)
 
 async def yandex_login(message):
