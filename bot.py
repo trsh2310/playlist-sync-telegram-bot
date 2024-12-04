@@ -118,6 +118,7 @@ async def message_add_vk_acc_handler(message: Message) -> None:
 async def save_token(message: Message):
     result = playlist_manager.save_token('vk', message.from_user.id, message.text)
     await message.reply(result)
+    await extra_acc(message)
 
 
 '''@dp.message(lambda message: 'vk.com/music/playlist' in message.text)
@@ -158,7 +159,6 @@ async def add_acc(message):
 async def vk_login(message):
     auth_url = playlist_manager.get_auth_url('vk')
     await message.reply(f"Лови ссылку для авторизации:\n{auth_url}")
-    await extra_acc(message)
 
 async def yandex_login(message):
     await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в яндексе")

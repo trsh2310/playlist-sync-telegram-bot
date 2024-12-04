@@ -1,4 +1,4 @@
-TELEGRAM_TOKEN = 'https://t.me/playlist_sync_telegram_bot'
+TELEGRAM_TOKEN = '7504141984:AAHGtezfdoF49gVuzRNWalACWUtFAl6jLKQ'
 VK_APP_ID = '52764217'
 VK_SECRET_KEY = 'hgFI15DnGXf1Ud32vlki'
 DATABASE_PATH = 'database.db'
