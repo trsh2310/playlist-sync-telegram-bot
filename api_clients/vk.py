@@ -1,6 +1,6 @@
 import vk_api
 
-class VKClient:
+class VKMusic:
     def __init__(self, token):
         self.vk_session = vk_api.VkApi(token=token)
         self.api = self.vk_session.get_api()

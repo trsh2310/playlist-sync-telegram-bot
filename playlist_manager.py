@@ -1,4 +1,4 @@
-from api_clients.vk import VKClient
+from api_clients.vk import VKMusic
 from models import Database
 from scrapers.vk_scraper import VKScraper
 from search_and_sync import SearchAndSync
@@ -26,25 +26,6 @@ class PlaylistManager:
         if not token:
             return "Сначала выполните авторизацию."
 
-        if platform == 'vk':
-            client = VKClient(token)
-            tracks = client.fetch_playlist(playlist_url)
-            track_info = [VKScraper.extract_track_info(track) for track in tracks]
-            self.db.save_tracks(user_id, track_info, platform)
-            return f"Найдено и сохранено {len(tracks)} треков."
-        return "Платформа не поддерживается."
 
-    def sync_playlist(self, platform, user_id):
-        token = self.db.get_token(user_id, platform)
-        if not token:
-            return "Сначала выполните авторизацию."
 
-        if platform == 'vk':
-            client = VKClient(token)
-            tracks = self.db.get_tracks(user_id, 'vk')
-            track_ids = SearchAndSync.search_tracks(client, tracks)
-            playlist = client.create_playlist("Синхронизированный плейлист", "Создан ботом")
-            client.add_tracks_to_playlist(playlist['id'], playlist['owner_id'], track_ids)
-            return "Плейлист успешно синхронизирован!"
-        return "Платформа не поддерживается."
 
