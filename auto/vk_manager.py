@@ -1,9 +1,8 @@
 import requests
-
-from api_clients.vk import VKMusic
+import vk_api
+from vk_api.audio import VkAudio
 from config import VK_REDIRECT_URI, VK_APP_ID
 from models import Database
-from search_and_sync import SearchAndSync
 
 
 class VKPlaylistManager:
@@ -11,6 +10,7 @@ class VKPlaylistManager:
         self.db = Database()
 
     def get_auth_url(self, platform):
+        """Выводит ссылку для регистрации"""
         if platform == "vk":
             app_id = VK_APP_ID
             redirect_uri = VK_REDIRECT_URI
@@ -21,6 +21,7 @@ class VKPlaylistManager:
         raise ValueError("Unknown platform")
 
     def save_token(self, platform, user_id, token_url):
+        """Сохраняет токен в ДБ"""
         if platform != "vk":
             return "Platform not supported"
 
@@ -42,27 +43,55 @@ class VKPlaylistManager:
         else:
             return "Ошибка авторизации"
 
-    def fetch_playlist(self, platform, user_id, playlist_url):
-        token = self.db.get_token(user_id, platform)
-        if not token:
-            return "Сначала выполните авторизацию."
+    def get_vk_audio(self, user_id):
+        """
+        Возвращает экземпляр VkAudio, авторизованный с помощью токена пользователя.
+        """
+        vk_token = self.db.get_token(user_id, "vk")
+        if not vk_token:
+            raise ValueError("VK token not found.")
 
-        if platform == 'vk':
-            client = VKMusic(token)
-            tracks = client.fetch_playlist(playlist_url)
-            return f"Найдено {len(tracks)} треков."
-        return "Платформа не поддерживается."
+        session = vk_api.VkApi(token=vk_token)
+        return VkAudio(session)
 
-    def sync_playlist(self, platform, user_id):
-        token = self.db.get_token(user_id, platform)
-        if not token:
-            return "Сначала выполните авторизацию."
+    def list_playlists(self, user_id):
+        """
+        Возвращает список плейлистов пользователя из VK.
+        """
+        vk_audio = self.get_vk_audio(user_id)
+        playlists = vk_audio.get_albums(user_id)
 
-        if platform == 'vk':
-            client = VKMusic(token)
-            tracks = self.db.get_tracks(user_id, platform)
-            track_ids = SearchAndSync.search_tracks(client, tracks)
-            playlist = client.create_playlist("Синхронизированный плейлист", "Создан ботом")
-            client.add_tracks_to_playlist(playlist['id'], playlist['owner_id'], track_ids)
-            return "Плейлист успешно синхронизирован!"
-        return "Платформа не поддерживается."
+        for idx, playlist in enumerate(playlists, start=1):
+            print(f"{idx}. {playlist['title']}")
+        return playlists
+
+    def list_songs_in_playlist(self, user_id, playlist_number):
+        """
+        Выводит список песен в указанном плейлисте.
+        """
+        vk_audio = self.get_vk_audio(user_id)
+        playlists = vk_audio.get_albums(user_id)
+
+        if playlist_number < 1 or playlist_number > len(playlists):
+            raise ValueError("Invalid playlist number.")
+
+        playlist = playlists[playlist_number - 1]
+        songs = vk_audio.get(album_id=playlist['id'], owner_id=playlist['owner_id'])
+
+        for idx, song in enumerate(songs, start=1):
+            print(f"{idx}. {song['artist']} - {song['title']}")
+
+        return songs
+
+    def save_playlist_to_db(self, user_id, playlist_number):
+        """
+        Сохраняет треки указанного плейлиста в базу данных.
+        """
+        songs = self.list_songs_in_playlist(user_id, playlist_number)
+        tracks = [{
+            'track_id': song['id'],
+            'artist': song['artist'],
+            'title': song['title']
+        } for song in songs]
+
+        self.db.save_tracks(user_id, tracks, platform="vk")
