@@ -6,11 +6,14 @@ from aiogram import Bot, Dispatcher, html, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command, CommandObject
-from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 
 from config import TELEGRAM_TOKEN
 from auto.vk_manager import VKPlaylistManager
+import vk_api
 
 yandex_names = ['yandex', 'Yandex', 'YANDEX',
                 'yandex music', 'yandex.music', 'Yandex music', 'Yandex Music', 'Yandex.Music',
@@ -38,6 +41,9 @@ add_acc_mess = ["Добавить аккаунт", "Добавить еще ак
 TOKEN = TELEGRAM_TOKEN
 dp = Dispatcher()
 vk_manager = VKPlaylistManager()
+class ChoosePlaylist(StatesGroup):
+    choosing_platform = State() # выбор пиццы
+    choosing_playlist = State() # выбор размера
 
 #обработка команд
 
@@ -66,7 +72,7 @@ async def command_add_acc_handler(message: Message, command: CommandObject) -> N
         elif platform in zvooq_names:
             await zvooq_login(message)
         else:
-            await message.answer("Я не знаю такой плаформы, \n"
+            await message.answer("Я не знаю такой платформы, \n"
                                  "попробуй ввести только /add_acc")
     else:
         await add_acc(message)
@@ -78,19 +84,25 @@ async def message_add_acc_handler(message: Message) -> None:
     await add_acc(message)
 
 @dp.message(F.text == "Готово")
-async def message_done_handler(message: Message) -> None:
+async def message_done_handler(message: Message, state: FSMContext) -> None:
     keyboard = ReplyKeyboardBuilder()
     button_vk = KeyboardButton(text="Плейлисты в VK")
     button_yandex = KeyboardButton(text="Плейлисты в Яндекс Музыке")
     button_spotify = KeyboardButton(text="Плейлисты в Spotify")
     button_zvooq = KeyboardButton(text="Плейлисты в Zvooq")
+
     accs = []
+    token_vk = vk_manager.db.get_token(message.from_user.id, "vk")
+    if token_vk:
+        accs.append("VK Музыка")
+        keyboard.add(button_vk)
     '''
     for (i in платформы):
         if (есть акк i в бд):
             keyboard.add(button_платформа)
             accs.append("платформа")
     '''
+
     if len(accs) == 0:
         button_add_acc = KeyboardButton(text="Добавить аккаунт")
         keyboard.add(button_add_acc)
@@ -106,6 +118,25 @@ async def message_done_handler(message: Message) -> None:
                 "Выбери платформу, на которой ты хочешь выбрать плейлист")
 
     await message.answer(text, reply_markup=keyboard.as_markup(resize_keyboard=True))
+    await state.set_state(ChoosePlaylist.choosing_platform)
+
+@dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в VK")
+async def choose_vk_playlist(message: Message, state: FSMContext):
+    token_vk = vk_manager.db.get_token(message.from_user.id, "vk")
+    vk_session = vk_api.VkApi(token=token_vk)
+    vk = vk_session.get_api()
+    user_vk_id = vk.users.get()[0]['id']
+    playlists = vk.audio.get_albums(owner_id=user_vk_id)
+    builder = InlineKeyboardBuilder()
+    for playlist in playlists:
+        builder.row(InlineKeyboardButton(
+            text=playlist['title'],
+            url=f"https://vk.com/music/playlist/{user_vk_id}_{playlist['id']}")
+        )
+    await message.answer(
+        'Тыкни на нужный плейлист',
+        reply_markup=builder.as_markup(),
+    )
 
 
 @dp.message(F.text.in_(vk_names))
@@ -127,6 +158,7 @@ async def save_token(message: Message):
     result = vk_manager.save_token('vk', message.from_user.id, message.text)
     await message.reply(result)
     await extra_acc(message)
+
 
 """
 !!!надо обработать не работает!!!
