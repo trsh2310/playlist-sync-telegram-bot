@@ -202,6 +202,7 @@ async def save_token(message: Message):
         token = callback_url.split("access_token=")[1].split("&")[0]
         spotify_sync.save_token(user_id, token)
         await message.answer("Авторизация прошла успешно!")
+        await extra_acc(message)
     except IndexError:
         await message.answer("Ошибка авторизации")
 
