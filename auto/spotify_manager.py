@@ -1,83 +1,90 @@
-from urllib.parse import urlencode, urlparse, parse_qs
 import requests
-
-from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI, SPOTIFY_SECRET_KEY
+import logging
+from urllib.parse import urlencode
+from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI
 from models import Database
 
-class SpotifyPlaylistManager:
-    def __init__(self):
-        self.db = Database()
+logging.basicConfig(level=logging.INFO)
 
-    def get_spotify_auth_url(self):
+class SpotifySync:
+    AUTH_URL = "https://accounts.spotify.com/authorize"
+    API_BASE_URL = "https://api.spotify.com/v1"
+
+    def __init__(self, database: Database):
+        self.db = database
+
+    def get_auth_url(self, user_id):
+        """
+        Генерируем URL для авторизации пользователя через Implicit Grant Flow.
+        """
         params = {
-            "response_type": "code",
             "client_id": SPOTIFY_APP_ID,
-            "scope": "user-library-read",
+            "response_type": "token",
             "redirect_uri": SPOTIFY_REDIRECT_URI,
+            "scope": "playlist-read-private playlist-read-collaborative",
+            "state": user_id,
         }
-        return f"https://accounts.spotify.com/authorize?{urlencode(params)}"
+        auth_url = f"{self.AUTH_URL}?{urlencode(params)}"
+        logging.info(f"Generated auth URL for user {user_id}: {auth_url}")
+        return auth_url
 
-    def spotify_save_token(self, user_id, platform, token_url):
-        parsed_url = urlparse(token_url)
-        query_params = parse_qs(parsed_url.query)
-        auth_code = query_params.get("code", [None])[0]
+    def save_token(self, user_id, token):
+        """
+        Сохраняем токен в базе данных.
+        """
+        self.db.save_token(user_id, "spotify", token)
 
-        if not auth_code:
-            return("Ошибка авторизации. Попробуйте снова.")
+    def get_user_playlists(self, user_id):
+        """
+        Получаем список плейлистов пользователя.
+        """
+        token = self.db.get_token(user_id, "spotify")
+        if not token:
+            raise ValueError("Spotify token not found for user.")
 
-        token_url = "https://accounts.spotify.com/api/token"
-        token_data = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": SPOTIFY_REDIRECT_URI,
-            "client_id": SPOTIFY_APP_ID,
-            "client_secret": SPOTIFY_SECRET_KEY,
+        headers = {
+            "Authorization": f"Bearer {token}"
         }
 
-        response = requests.post(token_url, data=token_data)
-        if response.status_code == 200:
-            token_info = response.json()
-            access_token = token_info["access_token"]
-            self.db.save_token(user_id, platform, access_token)
-            refresh_token = token_info["refresh_token"]
-            return ("Авторизация успешно завершена!")
-        else:
-            return ("Ошибка при получении токена. Попробуйте снова.")
-
-    def list_playlists(self, user_id):
-        token = self.db.get_token(user_id, 'spotify')
-        if not token:
-            raise ValueError("Spotify token not found for this user.")
-
-        url = "https://api.spotify.com/v1/me/playlists"
-        headers = {"Authorization": f"Bearer {token}"}
-        response = requests.get(url, headers=headers)
-
+        response = requests.get(f"{self.API_BASE_URL}/me/playlists", headers=headers)
         if response.status_code != 200:
-            raise Exception("Error fetching playlists from Spotify.")
+            logging.error(f"Failed to fetch playlists: {response.text}")
+            raise ValueError("Failed to fetch playlists.")
 
-        playlists = response.json()['items']
-        return [{'name': playlist['name'], 'id': playlist['id']} for playlist in playlists]
+        playlists = response.json()["items"]
+        logging.info(f"Fetched {len(playlists)} playlists for user {user_id}.")
 
-    def list_songs_in_playlist(self, user_id, playlist_id):
-        token = self.db.get_token(user_id, 'spotify')
+        # Формируем список плейлистов с порядковым номером
+        return [{"name": playlist["name"], "id": playlist["id"]} for playlist in playlists]
+
+    def get_playlist_tracks(self, user_id, playlist_id):
+        """
+        Получаем список треков из выбранного плейлиста.
+        """
+        token = self.db.get_token(user_id, "spotify")
         if not token:
-            raise ValueError("Spotify token not found for this user.")
+            raise ValueError("Spotify token not found for user.")
 
-        url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
-        headers = {"Authorization": f"Bearer {token}"}
-        response = requests.get(url, headers=headers)
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
 
+        response = requests.get(f"{self.API_BASE_URL}/playlists/{playlist_id}/tracks", headers=headers)
         if response.status_code != 200:
-            raise Exception("Error fetching songs from playlist.")
+            logging.error(f"Failed to fetch tracks: {response.text}")
+            raise ValueError("Failed to fetch tracks.")
 
-        tracks = response.json()['items']
-        songs = [{'track_id': track['track']['id'],
-                  'artist': track['track']['artists'][0]['name'],
-                  'title': track['track']['name']} for track in tracks]
+        tracks = response.json()["items"]
+        logging.info(f"Fetched {len(tracks)} tracks from playlist {playlist_id} for user {user_id}.")
 
-        # Save songs to the database
-        self.db.save_tracks(user_id, songs, platform='spotify')
-        return songs
+        # Формируем список треков
+        track_list = []
+        for item in tracks:
+            track = item["track"]
+            track_list.append({
+                "track_id": track["id"],
+                "artist": ", ".join([artist["name"] for artist in track["artists"]]),
+                "title": track["name"]
+            })
 
-
+        return track_list

@@ -11,10 +11,12 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 
-from auto.spotify_manager import SpotifyPlaylistManager
+from auto.spotify_manager import SpotifySync
 from config import TELEGRAM_TOKEN
-from auto.vk_manager import VKPlaylistManager
+from auto.vk_manager import VKSync
 import vk_api
+
+from models import Database
 
 yandex_names = ['yandex', 'Yandex', 'YANDEX',
                 'yandex music', 'yandex.music', 'Yandex music', 'Yandex Music', 'Yandex.Music',
@@ -41,8 +43,9 @@ add_acc_mess = ["Добавить аккаунт", "Добавить еще ак
 
 TOKEN = TELEGRAM_TOKEN
 dp = Dispatcher()
-vk_manager = VKPlaylistManager()
-spotify_manager = SpotifyPlaylistManager()
+db = Database()
+vk_sync = VKSync()
+spotify_sync = SpotifySync(db)
 
 class ChoosePlaylist(StatesGroup):
     choosing_platform = State() # выбор пиццы
@@ -95,7 +98,7 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
     button_zvooq = KeyboardButton(text="Плейлисты в Zvooq")
 
     accs = []
-    token_vk = vk_manager.db.get_token(message.from_user.id, "vk")
+    token_vk = vk_sync.db.get_token(message.from_user.id, "vk")
     if token_vk:
         accs.append("VK Музыка")
         keyboard.add(button_vk)
@@ -125,7 +128,7 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
 
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в VK")
 async def choose_vk_playlist(message: Message, state: FSMContext):
-    token_vk = vk_manager.db.get_token(message.from_user.id, "vk")
+    token_vk = vk_sync.db.get_token(message.from_user.id, "vk")
     vk_session = vk_api.VkApi(token=token_vk)
     vk = vk_session.get_api()
     user_vk_id = vk.users.get()[0]['id']
@@ -141,41 +144,34 @@ async def choose_vk_playlist(message: Message, state: FSMContext):
         reply_markup=builder.as_markup(),
     )
 
-
 @dp.message(F.text.in_(vk_names))
 async def message_add_vk_acc_handler(message: Message) -> None:
     await vk_login(message)
 
-"""
-написала то что ниже, сама функция vk_manager.save_token передает сообщение
 @dp.message(lambda message: message.text.startswith('https://oauth.vk.com/blank.html'))
 async def save_token(message: Message):
-    result = playlist_manager.save_token('vk', message.from_user.id, message.text)
-    await message.reply(result)
-    if "Авторизация успешна" in result:
-        await extra_acc(message)
-"""
-
-@dp.message(lambda message: message.text.startswith('https://oauth.vk.com/blank.html'))
-async def save_token(message: Message):
-    result = vk_manager.vk_save_token('vk', message.from_user.id, message.text)
+    result = vk_sync.vk_save_token('vk', message.from_user.id, message.text)
     await message.reply(result)
     await extra_acc(message)
 
 @dp.message(lambda message: message.text.startswith('urn:ietf:wg:oauth:2.0:oob'))
 async def save_token(message: Message):
-    result = spotify_manager.spotify_save_token('spotify', message.from_user.id, message.text)
-    await message.reply(result)
-    await extra_acc(message)
+    """
+        Обрабатываем URL, который пользователь присылает после авторизации.
+        """
+    user_id = message.from_user.id
+    callback_url = message.text
+
+    # Извлекаем токен из callback URL (Spotify возвращает его в виде фрагмента URL)
+    try:
+        token = callback_url.split("access_token=")[1].split("&")[0]
+        spotify_sync.save_token(user_id, token)
+        await message.answer("Авторизация прошла успешно! Теперь вы можете просматривать свои плейлисты.")
+    except IndexError:
+        await message.answer("Не удалось извлечь токен. Проверьте правильность введённого URL.")
 
 
 """
-!!!надо обработать не работает!!!
-@dp.message(lambda message: 'vk.com/music/playlist' in message.text)
-async def get_playlist(message: Message):
-    result = playlist_manager.fetch_playlist('vk', message.from_user.id, message.text)
-    await message.reply(result) 
-
 @dp.message(lambda message: message.text.lower() in ['vk', 'spotify', 'yandex', 'zvook'])
 async def sync_playlist(message: Message):
     platform = message.text.lower()
@@ -213,7 +209,7 @@ async def add_acc(message):
     await message.answer(text_add_acc, reply_markup=keyboard_add_acc.as_markup(resize_keyboard=True))
 
 async def vk_login(message):
-    auth_url = vk_manager.get_auth_url('vk')
+    auth_url = vk_sync.get_auth_url('vk')
     await message.reply(f"Лови ссылку для авторизации:\n{auth_url}\n"
                         f"После авторизации отправьте мне ссылку из адресной строки")
 
@@ -222,7 +218,7 @@ async def yandex_login(message):
     await extra_acc(message)
 
 async def spotify_login(message):
-    auth_url = spotify_manager.get_spotify_auth_url()
+    auth_url = spotify_sync.get_auth_url(message.from_user.id)
     await message.reply(
         f"Пройдите авторизацию через Spotify по этой ссылке:\n{auth_url}\n"
         "После авторизации введите код, который вы увидите на экране."
