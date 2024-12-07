@@ -250,7 +250,7 @@ async def vk_login(message):
         text="Войти в вк",
         url=auth_url)
     )
-    await message.reply(f"Лови ссылку для авторизации"
+    await message.reply(f"Лови ссылку для авторизации \n"
                         f"После авторизации скопируй ссылку из адресной строки и скинь мне",
                         reply_markup=builder.as_markup())
 
@@ -265,7 +265,7 @@ async def spotify_login(message):
         text="Войти в спотик",
         url=auth_url)
     )
-    await message.reply(f"Лови ссылку для авторизации"
+    await message.reply(f"Лови ссылку для авторизации \n"
                         f"После авторизации скопируй ссылку из адресной строки и скинь мне",
                         reply_markup=builder.as_markup())
 
