@@ -5,10 +5,10 @@ from config import VK_REDIRECT_URI, VK_APP_ID
 from models import Database
 
 
-class VKPlaylistManager:
+class VKSync:
     def __init__(self):
         self.db = Database()
-    
+
     def get_auth_url(self, platform):
         """Выводит ссылку для регистрации"""
         if platform == "vk":
@@ -39,8 +39,6 @@ class VKPlaylistManager:
                     f"Отправьте ссылку на плейлист, который хотите синхронизировать.")
         else:
             return "Ошибка авторизации"
-
-
 
     def get_vk_audio(self, user_id):
         """
@@ -93,4 +91,3 @@ class VKPlaylistManager:
         } for song in songs]
 
         self.db.save_tracks(user_id, tracks, platform="vk")
-
