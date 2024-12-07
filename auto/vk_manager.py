@@ -35,8 +35,7 @@ class VKSync:
         if response.status_code == 200 and "response" in response.json():
             user_info = response.json()["response"][0]
             return (f"Авторизация успешна! \n"
-                    f"Привет, {user_info['first_name']} {user_info['last_name']}! 🎉\n"
-                    f"Отправьте ссылку на плейлист, который хотите синхронизировать.")
+                    f"Привет, {user_info['first_name']} {user_info['last_name']}! 🎉\n")
         else:
             return "Ошибка авторизации"
 

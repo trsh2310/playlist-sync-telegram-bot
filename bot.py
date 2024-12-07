@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from distutils.command.install import install
 
 from aiogram import Bot, Dispatcher, html, F
 from aiogram.client.default import DefaultBotProperties
@@ -15,6 +16,8 @@ from auto.spotify_manager import SpotifySync
 from config import TELEGRAM_TOKEN
 from auto.vk_manager import VKSync
 import vk_api
+
+
 import spotipy
 
 from models import Database
@@ -104,7 +107,7 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
         accs.append("VK Музыка")
         keyboard.add(button_vk)
 
-    token_spotify = spotify_manager.db.get_token(message.from_user.id, "spotify")
+    token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
     if token_spotify:
         accs.append("Spotify")
         keyboard.add(button_spotify)
@@ -153,7 +156,7 @@ async def choose_vk_playlist(message: Message, state: FSMContext):
 
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в Spotify")
 async def choose_spotify_playlist(message: Message, state: FSMContext):
-    token_spotify = spotify_manager.db.get_token(message.from_user.id, "spotify")
+    token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
     spotify = spotipy.Spotify(auth=token_spotify)
     user_spotify_id = spotify.current_user()
     playlists = spotify.current_user_playlists()
@@ -198,9 +201,9 @@ async def save_token(message: Message):
     try:
         token = callback_url.split("access_token=")[1].split("&")[0]
         spotify_sync.save_token(user_id, token)
-        await message.answer("Авторизация прошла успешно! Теперь вы можете просматривать свои плейлисты.")
+        await message.answer("Авторизация прошла успешно!")
     except IndexError:
-        await message.answer("Не удалось извлечь токен. Проверьте правильность введённого URL.")
+        await message.answer("Ошибка авторизации")
 
 
 """
@@ -242,8 +245,14 @@ async def add_acc(message):
 
 async def vk_login(message):
     auth_url = vk_sync.get_auth_url('vk')
-    await message.reply(f"Лови ссылку для авторизации:\n{auth_url}\n"
-                        f"После авторизации отправьте мне ссылку из адресной строки")
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text="Войти в вк",
+        url=auth_url)
+    )
+    await message.reply(f"Лови ссылку для авторизации"
+                        f"После авторизации скопируй ссылку из адресной строки и скинь мне",
+                        reply_markup=builder.as_markup())
 
 async def yandex_login(message):
     await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в яндексе")
@@ -251,10 +260,14 @@ async def yandex_login(message):
 
 async def spotify_login(message):
     auth_url = spotify_sync.get_auth_url(message.from_user.id)
-    await message.reply(
-        f"Пройдите авторизацию через Spotify по этой ссылке:\n{auth_url}\n"
-        "После авторизации введите код, который вы увидите на экране."
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text="Войти в спотик",
+        url=auth_url)
     )
+    await message.reply(f"Лови ссылку для авторизации"
+                        f"После авторизации скопируй ссылку из адресной строки и скинь мне",
+                        reply_markup=builder.as_markup())
 
 async def zvooq_login(message):
     await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в звуке \n" +
