@@ -15,6 +15,7 @@ from auto.spotify_manager import SpotifyPlaylistManager
 from config import TELEGRAM_TOKEN
 from auto.vk_manager import VKPlaylistManager
 import vk_api
+import spotipy
 
 yandex_names = ['yandex', 'Yandex', 'YANDEX',
                 'yandex music', 'yandex.music', 'Yandex music', 'Yandex Music', 'Yandex.Music',
@@ -45,8 +46,8 @@ vk_manager = VKPlaylistManager()
 spotify_manager = SpotifyPlaylistManager()
 
 class ChoosePlaylist(StatesGroup):
-    choosing_platform = State() # выбор пиццы
-    choosing_playlist = State() # выбор размера
+    choosing_platform = State()
+    choosing_playlist = State()
 
 #обработка команд
 
@@ -99,6 +100,11 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
     if token_vk:
         accs.append("VK Музыка")
         keyboard.add(button_vk)
+
+    token_spotify = spotify_manager.db.get_token(message.from_user.id, "spotify")
+    if token_spotify:
+        accs.append("Spotify")
+        keyboard.add(button_spotify)
     '''
     for (i in платформы):
         if (есть акк i в бд):
@@ -129,7 +135,7 @@ async def choose_vk_playlist(message: Message, state: FSMContext):
     vk_session = vk_api.VkApi(token=token_vk)
     vk = vk_session.get_api()
     user_vk_id = vk.users.get()[0]['id']
-    playlists = vk.audio.get_albums(owner_id=user_vk_id)
+    playlists = vk.list_playlists(user_vk_id)
     builder = InlineKeyboardBuilder()
     for playlist in playlists:
         builder.row(InlineKeyboardButton(
@@ -140,6 +146,32 @@ async def choose_vk_playlist(message: Message, state: FSMContext):
         'Тыкни на нужный плейлист',
         reply_markup=builder.as_markup(),
     )
+    await state.set_state(ChoosePlaylist.choosing_playlist)
+
+@dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в Spotify")
+async def choose_spotify_playlist(message: Message, state: FSMContext):
+    token_spotify = spotify_manager.db.get_token(message.from_user.id, "spotify")
+    spotify = spotipy.Spotify(auth=token_spotify)
+    user_spotify_id = spotify.current_user()
+    playlists = spotify.current_user_playlists()
+    builder = InlineKeyboardBuilder()
+    while playlists:
+        for playlist in playlists['items']:
+            name = playlist['name']
+            url = playlist['external_urls']['spotify']
+            builder.row(InlineKeyboardButton(
+                text=name,
+                url=url)
+            )
+        if playlists['next']:
+            playlists = spotify.next(playlists)
+        else:
+            playlists = None
+    await message.answer(
+        'Тыкни на нужный плейлист',
+        reply_markup=builder.as_markup(),
+    )
+    await state.set_state(ChoosePlaylist.choosing_playlist)
 
 
 @dp.message(F.text.in_(vk_names))
