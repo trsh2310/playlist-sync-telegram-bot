@@ -8,7 +8,7 @@ from models import Database
 class VKPlaylistManager:
     def __init__(self):
         self.db = Database()
-
+    
     def get_auth_url(self, platform):
         """Выводит ссылку для регистрации"""
         if platform == "vk":
@@ -20,11 +20,8 @@ class VKPlaylistManager:
             return auth_url
         raise ValueError("Unknown platform")
 
-    def save_token(self, platform, user_id, token_url):
+    def vk_save_token(self, user_id, platform, token_url):
         """Сохраняет токен в ДБ"""
-        if platform != "vk":
-            return "Platform not supported"
-
         token_data = dict(pair.split("=") for pair in token_url.split("#")[1].split("&"))
         access_token = token_data.get("access_token")
         self.db.save_token(user_id, platform, access_token)
@@ -43,6 +40,8 @@ class VKPlaylistManager:
         else:
             return "Ошибка авторизации"
 
+
+
     def get_vk_audio(self, user_id):
         """
         Возвращает экземпляр VkAudio, авторизованный с помощью токена пользователя.
@@ -58,11 +57,10 @@ class VKPlaylistManager:
         """
         Возвращает список плейлистов пользователя из VK.
         """
+        vk_token = self.db.get_token(user_id, "vk")
+        vk_id = get_user_id(vk_token)
         vk_audio = self.get_vk_audio(user_id)
-        playlists = vk_audio.get_albums(user_id)
-
-        for idx, playlist in enumerate(playlists, start=1):
-            print(f"{idx}. {playlist['title']}")
+        playlists = vk_audio.get_albums()
         return playlists
 
     def list_songs_in_playlist(self, user_id, playlist_number):
@@ -95,3 +93,4 @@ class VKPlaylistManager:
         } for song in songs]
 
         self.db.save_tracks(user_id, tracks, platform="vk")
+

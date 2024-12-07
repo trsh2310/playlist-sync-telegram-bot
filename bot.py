@@ -11,6 +11,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 
+from auto.spotify_manager import SpotifyPlaylistManager
 from config import TELEGRAM_TOKEN
 from auto.vk_manager import VKPlaylistManager
 import vk_api
@@ -41,6 +42,8 @@ add_acc_mess = ["Добавить аккаунт", "Добавить еще ак
 TOKEN = TELEGRAM_TOKEN
 dp = Dispatcher()
 vk_manager = VKPlaylistManager()
+spotify_manager = SpotifyPlaylistManager()
+
 class ChoosePlaylist(StatesGroup):
     choosing_platform = State() # выбор пиццы
     choosing_playlist = State() # выбор размера
@@ -155,7 +158,13 @@ async def save_token(message: Message):
 
 @dp.message(lambda message: message.text.startswith('https://oauth.vk.com/blank.html'))
 async def save_token(message: Message):
-    result = vk_manager.save_token('vk', message.from_user.id, message.text)
+    result = vk_manager.vk_save_token('vk', message.from_user.id, message.text)
+    await message.reply(result)
+    await extra_acc(message)
+
+@dp.message(lambda message: message.text.startswith('urn:ietf:wg:oauth:2.0:oob'))
+async def save_token(message: Message):
+    result = spotify_manager.spotify_save_token('spotify', message.from_user.id, message.text)
     await message.reply(result)
     await extra_acc(message)
 
@@ -213,8 +222,11 @@ async def yandex_login(message):
     await extra_acc(message)
 
 async def spotify_login(message):
-    await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в спотике")
-    await extra_acc(message)
+    auth_url = spotify_manager.get_spotify_auth_url()
+    await message.reply(
+        f"Пройдите авторизацию через Spotify по этой ссылке:\n{auth_url}\n"
+        "После авторизации введите код, который вы увидите на экране."
+    )
 
 async def zvooq_login(message):
     await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в звуке \n" +
