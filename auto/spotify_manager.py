@@ -1,7 +1,7 @@
 import requests
 import logging
 from urllib.parse import urlencode
-from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI
+from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI, SPOTIFY_SECRET_KEY
 from models import Database
 
 logging.basicConfig(level=logging.INFO)
@@ -15,17 +15,18 @@ class SpotifySync:
 
     def get_auth_url(self, user_id):
         """
-        Генерируем URL для авторизации пользователя через Implicit Grant Flow.
+        Генерируем URL для авторизации.
         """
         params = {
             "client_id": SPOTIFY_APP_ID,
+            "client_secret" : SPOTIFY_SECRET_KEY,
             "response_type": "token",
             "redirect_uri": SPOTIFY_REDIRECT_URI,
-            "scope": "playlist-read-private playlist-read-collaborative",
-            "state": user_id,
+            "scope": "playlist-read-private playlist-read-collaborative"
         }
         auth_url = f"{self.AUTH_URL}?{urlencode(params)}"
         logging.info(f"Generated auth URL for user {user_id}: {auth_url}")
+        print (auth_url)
         return auth_url
 
     def save_token(self, user_id, token):
@@ -34,28 +35,48 @@ class SpotifySync:
         """
         self.db.save_token(user_id, "spotify", token)
 
-    def get_user_playlists(self, user_id):
+    def get_saved_albums(access_token, limit=20, offset=0, market=None):
         """
-        Получаем список плейлистов пользователя.
+        Получает список альбомов, сохранённых в библиотеке текущего пользователя Spotify
+        :param access_token: str. Токен доступа
+        :param limit: int. Максимальное количество альбомов
+        :param offset: int. Смещение для пагинации
+        :param market: str. Код страны
+        :return: list. Список альбомов
         """
-        token = self.db.get_token(user_id, "spotify")
-        if not token:
-            raise ValueError("Spotify token not found for user.")
+        url = "https://api.spotify.com/v1/me/albums"
+
+        params = {
+            "limit": limit,
+            "offset": offset
+        }
+        if market:
+            params["market"] = market
 
         headers = {
-            "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {access_token}"
         }
+        # Выполнение GET-запроса
+        response = requests.get(url, headers=headers, params=params)
 
-        response = requests.get(f"{self.API_BASE_URL}/me/playlists", headers=headers)
-        if response.status_code != 200:
-            logging.error(f"Failed to fetch playlists: {response.text}")
-            raise ValueError("Failed to fetch playlists.")
+        if response.status_code == 200:
+            data = response.json()
+            albums = []
+            for item in data.get("items", []):
+                album = item["album"]
+                albums.append({
+                    "name": album["name"],
+                    "artist": ", ".join([artist["name"] for artist in album["artists"]]),
+                    "release_date": album["release_date"],
+                    "total_tracks": album["total_tracks"],
+                    "url": album["external_urls"]["spotify"]
+                })
 
-        playlists = response.json()["items"]
-        logging.info(f"Fetched {len(playlists)} playlists for user {user_id}.")
-
-        # Формируем список плейлистов с порядковым номером
-        return [{"name": playlist["name"], "id": playlist["id"]} for playlist in playlists]
+            return albums
+        else:
+            # Обработка ошибок
+            return {"error": response.status_code,
+                    "message": response.json().get("error", {}).get("message", "Unknown error")}
 
     def get_playlist_tracks(self, user_id, playlist_id):
         """
