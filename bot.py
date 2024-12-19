@@ -16,7 +16,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from auto.spotify_manager import SpotifySync
 from auto.vk_manager import VKMusicManager
-import vk_api
 from config import TELEGRAM_TOKEN, VK_APP_ID
 
 import spotipy
