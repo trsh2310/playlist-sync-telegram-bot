@@ -1,9 +1,7 @@
 import requests
 import logging
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 from urllib.parse import urlencode
-from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI, SPOTIFY_SECRET_KEY
+from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI
 from models import Database
 
 logging.basicConfig(level=logging.INFO)
@@ -19,11 +17,15 @@ class SpotifySync:
         """
         Генерируем URL для авторизации пользователя через Implicit Grant Flow.
         """
-        auth_manager = SpotifyOAuth(client_id=SPOTIFY_APP_ID,
-                                    client_secret=SPOTIFY_SECRET_KEY,
-                                    redirect_uri=SPOTIFY_REDIRECT_URI,
-                                    scope='playlist-read-collaborative playlist-read-private playlist-modify-public playlist-modify-private')
-        auth_url = auth_manager.get_authorize_url()
+        params = {
+            "client_id": SPOTIFY_APP_ID,
+            "response_type": "token",
+            "redirect_uri": SPOTIFY_REDIRECT_URI,
+            "scope": "playlist-read-private playlist-read-collaborative",
+            "state": user_id,
+        }
+        auth_url = f"{self.AUTH_URL}?{urlencode(params)}"
+        logging.info(f"Generated auth URL for user {user_id}: {auth_url}")
         return auth_url
 
     def save_token(self, user_id, token):
