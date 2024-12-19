@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from distutils.command.install import install
+import sqlite3
 
 from aiogram import Bot, Dispatcher, html, F
 from aiogram.client.default import DefaultBotProperties
@@ -11,16 +12,20 @@ from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup, InlineKe
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from auto.spotify_manager import SpotifySync
-from config import TELEGRAM_TOKEN
-from auto.vk_manager import VKSync
+from auto.vk_manager import VKMusicManager
 import vk_api
-
+from config import TELEGRAM_TOKEN, VK_APP_ID
 
 import spotipy
 
 from models import Database
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 yandex_names = ['yandex', 'Yandex', 'YANDEX',
                 'yandex music', 'yandex.music', 'Yandex music', 'Yandex Music', 'Yandex.Music',
@@ -46,14 +51,28 @@ add_acc_mess = ["Добавить аккаунт", "Добавить еще ак
                 "добавить аккаунт", "добавить еще аккаунт"]
 
 TOKEN = TELEGRAM_TOKEN
-dp = Dispatcher()
-db = Database()
-vk_sync = VKSync()
-spotify_sync = SpotifySync(db)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
+
+conn = sqlite3.connect('users.db')
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS users (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             tg_user_id INTEGER,
+             platform TEXT,
+             login TEXT,
+             password TEXT)''')
+conn.commit()
+spotify_sync = SpotifySync(conn)
 
 class ChoosePlaylist(StatesGroup):
     choosing_platform = State()
     choosing_playlist = State()
+
+class VkLogin(StatesGroup):
+    waiting_for_credentials = State()
+    awaiting_sms_code = State()
+
 
 #обработка команд
 
@@ -66,7 +85,8 @@ async def command_start_handler(message: Message) -> None:
     text_start = (f"👋 Привет, {message.from_user.full_name}! \n"
                   "Я помогу синхронизировать твои плейлисты между платформами. \n"
                   "Для начала, пожалуйста, авторизуйся в сервисах, с которыми ты хочешь работать. \n"
-                  "Эта функция всегда доступна по команде /add_acc")
+                  "Эта функция всегда доступна по команде /add_acc \n"
+                  "После авторизации на платформах тыкни кнопку Готово или используй команду /home")
     await message.answer(text_start, reply_markup=keyboard_start)
 
 @dp.message(Command("add_acc"))
@@ -93,7 +113,7 @@ async def command_add_acc_handler(message: Message, command: CommandObject) -> N
 async def message_add_acc_handler(message: Message) -> None:
     await add_acc(message)
 
-@dp.message(F.text == "Готово")
+@dp.message(Command("home") | F.text == "Готово")
 async def message_done_handler(message: Message, state: FSMContext) -> None:
     keyboard = ReplyKeyboardBuilder()
     button_vk = KeyboardButton(text="Плейлисты в VK")
@@ -102,8 +122,9 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
     button_zvooq = KeyboardButton(text="Плейлисты в Zvooq")
 
     accs = []
-    token_vk = vk_sync.db.get_token(message.from_user.id, "vk")
-    if token_vk:
+    c.execute("SELECT COUNT(*) FROM users WHERE tg_user_id = ? AND platform = ?",
+              (message.from_user.id, "vk"))
+    if c.fetchone()[0] > 0:
         accs.append("VK Музыка")
         keyboard.add(button_vk)
 
@@ -136,17 +157,17 @@ async def message_done_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(ChoosePlaylist.choosing_platform)
 
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в VK")
-async def choose_vk_playlist(message: Message, state: FSMContext):
-    token_vk = vk_sync.db.get_token(message.from_user.id, "vk")
-    vk_session = vk_api.VkApi(token=token_vk)
-    vk = vk_session.get_api()
-    user_vk_id = vk.users.get()[0]['id']
-    playlists = vk.list_playlists(user_vk_id)
+async def choose_vk_playlist(message: Message, state: FSMContext, vk_session):
+    manager = VKMusicManager(vk_session)
+    playlists = manager.list_playlists()
     builder = InlineKeyboardBuilder()
-    for playlist in playlists:
+    vk_api_instance = vk_session.get_api()
+    user_info = vk_api_instance.users.get()
+    user_vk_id = user_info[0]['id']
+    for title, playlist_id in playlists:
         builder.row(InlineKeyboardButton(
-            text=playlist['title'],
-            url=f"https://vk.com/music/playlist/{user_vk_id}_{playlist['id']}")
+            text=title,
+            url=f"https://vk.com/music/playlist/{user_vk_id}_{playlist_id}")
         )
     await message.answer(
         'Тыкни на нужный плейлист',
@@ -156,38 +177,46 @@ async def choose_vk_playlist(message: Message, state: FSMContext):
 
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в Spotify")
 async def choose_spotify_playlist(message: Message, state: FSMContext):
-    token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
-    spotify = spotipy.Spotify(auth=token_spotify)
-    user_spotify_id = spotify.current_user()
-    playlists = spotify.current_user_playlists()
-    builder = InlineKeyboardBuilder()
-    while playlists:
-        for playlist in playlists['items']:
-            name = playlist['name']
-            url = playlist['external_urls']['spotify']
-            builder.row(InlineKeyboardButton(
-                text=name,
-                url=url)
-            )
-        if playlists['next']:
-            playlists = spotify.next(playlists)
-        else:
-            playlists = None
-    await message.answer(
-        'Тыкни на нужный плейлист',
-        reply_markup=builder.as_markup(),
-    )
-    await state.set_state(ChoosePlaylist.choosing_playlist)
+    try:
+        token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
+        if not token_spotify:
+            await message.answer("Не удалось получить данные (1)")
+            return
+        spotify = spotipy.Spotify(auth=token_spotify)
+        user_data = spotify.current_user()
+        if not user_data:
+            await message.answer("Не удалось получить данные (2)")
+            return
+        user_spotify_id = user_data.get('id')
+        if not user_spotify_id:
+            await message.answer("Не удалось получить данные (3)")
+            return
+        playlists_response = spotify.user_playlists(user_spotify_id)
+        if not playlists_response or 'items' not in playlists_response:
+            await message.answer("Не удалось получить плейлисты")
+            return
+        playlists = playlists_response['items']
+        if not playlists:
+            await message.answer("У тебя нет плейлистов в спотике")
+            return
+        builder = InlineKeyboardBuilder()
+        for playlist in playlists:
+            name = playlist.get('name', 'Без названия')
+            url = playlist.get('external_urls', {}).get('spotify')
+            if url:
+                builder.add(InlineKeyboardButton(text=name, url=url))
+        await message.answer(
+            'Тыкни на нужный плейлист',
+            reply_markup=builder.as_markup(),
+        )
+        await state.set_state(ChoosePlaylist.choosing_playlist)
+    except Exception as e:
+        logging.error(f"Ошибка при обработке плейлистов Spotify: {e}")
+        await message.answer("Ошибка при получении плейлистов:(")
 
 @dp.message(F.text.in_(vk_names))
 async def message_add_vk_acc_handler(message: Message) -> None:
     await vk_login(message)
-
-@dp.message(lambda message: message.text.startswith('https://oauth.vk.com/blank.html'))
-async def save_token(message: Message):
-    result = vk_sync.vk_save_token('vk', message.from_user.id, message.text)
-    await message.reply(result)
-    await extra_acc(message)
 
 @dp.message(lambda message: message.text.startswith('urn:ietf:wg:oauth:2.0:oob'))
 async def save_token(message: Message):
@@ -226,6 +255,53 @@ async def message_add_spotify_acc_handler(message: Message) -> None:
 async def message_add_zvooq_acc_handler(message: Message) -> None:
     await zvooq_login(message)
 
+@dp.message(VkLogin.waiting_for_credentials)
+async def process_credentials(message: Message, state: FSMContext):
+    logging.info(f"Processing credentials:")
+    data = await state.get_data()
+    platform = data.get("platform")
+    try:
+        login, password = message.text.split()
+        global current_user_id
+        current_user_id = message.from_user.id
+        def sync_auth_handler():
+            logging.info("Двухфакторная аутентификация: ожидание SMS-кода.")
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(chat_id=current_user_id, text="Введи SMS-код для завершения авторизации."),
+                asyncio.get_event_loop()
+            )
+            future_code = asyncio.run_coroutine_threadsafe(get_sms_code(), asyncio.get_event_loop())
+            code = future_code.result()
+            logging.info(f"Получен SMS-код: {code}")
+            return code, False
+        vk_session = vk_api.VkApi(login=login, password=password, auth_handler=sync_auth_handler, app_id=VK_APP_ID)
+        try:
+            vk_session.auth()
+        except vk_api.AuthError as e:
+            await message.reply(f"Ошибка авторизации: {e}")
+            return
+        c.execute("REPLACE INTO users (tg_user_id, platform, login, password) VALUES (?, ?, ?, ?)",
+                      (message.from_user.id, platform, login, password))
+        conn.commit()
+        await message.reply("Вы успешно авторизовались в VK!")
+    except ValueError:
+        await message.reply("Ошибка: введите логин и пароль через пробел.")
+    finally:
+        await state.clear()
+
+async def get_sms_code():
+    """
+    Ожидает ввода SMS-кода от пользователя.
+    """
+    loop = asyncio.get_event_loop()
+    future_code = loop.create_future()
+    @dp.message(VkLogin.awaiting_sms_code)
+    async def receive_code(message: Message, state: FSMContext):
+        if not future_code.done():
+            future_code.set_result(message.text.strip())
+        await state.clear()
+    return await future_code
+
 ##непон
 @dp.message()
 async def unknown_message_handler(message: Message) -> None:
@@ -244,16 +320,10 @@ async def add_acc(message):
     text_add_acc = ("Выбери платформу для авторизации")
     await message.answer(text_add_acc, reply_markup=keyboard_add_acc.as_markup(resize_keyboard=True))
 
-async def vk_login(message):
-    auth_url = vk_sync.get_auth_url('vk')
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(
-        text="Войти в вк",
-        url=auth_url)
-    )
-    await message.reply(f"Лови ссылку для авторизации \n"
-                        f"После авторизации скопируй ссылку из адресной строки и скинь мне",
-                        reply_markup=builder.as_markup())
+async def vk_login(message, state: FSMContext):
+    await message.reply(f"Введи свои логин и пароль через пробел")
+    await state.set_state(VkLogin.waiting_for_credentials)
+
 
 async def yandex_login(message):
     await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в яндексе")
@@ -271,8 +341,7 @@ async def spotify_login(message):
                         reply_markup=builder.as_markup())
 
 async def zvooq_login(message):
-    await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в звуке \n" +
-                            html.spoiler("(и вообще ты что конченный какой звук кто им вообще пользуется)"))
+    await message.answer("😔 Сори, Арина тупая, поэтому я еще не умею логиниться в звуке \n")
     await extra_acc(message)
 
 async def extra_acc(message):
