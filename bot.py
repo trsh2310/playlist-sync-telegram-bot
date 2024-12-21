@@ -13,16 +13,18 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-
+from yandex_music.exceptions import UnauthorizedError
+from yandex_music import Client
 from models import Database
 from platform_manager.spotify_manager import SpotifyManager
 from platform_manager.vk_manager import VKMusicManager
 from config import TELEGRAM_TOKEN, VK_APP_ID
-from names import vk_names, spotify_names, add_acc_mess
+from names import vk_names, spotify_names, add_acc_mess, yandex_names
 
 import spotipy
 import vk_api
 
+from platform_manager.yandex_manager import YandexManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 dp = Dispatcher(storage=MemoryStorage())
 vk_code = None
 auth_spotify = None
+auth_yandex = None
 
 platforms = {
     "Spotify" : False,
@@ -50,6 +53,8 @@ class VkLogin(StatesGroup):
 class SpotifyLogin(StatesGroup):
     waiting_for_link = State()
 
+class YandexLogin(StatesGroup):
+    waiting_for_token = State()
 #обработка команд
 
 @dp.message(CommandStart())
@@ -71,6 +76,8 @@ async def command_add_acc_handler(message: Message, command: CommandObject, stat
             await vk_login(message, state)
         elif platform in spotify_names:
             await spotify_login(message, state)
+        elif platform in yandex_names:
+            await yandex_handler(message, state)
         else:
             await message.answer("Я не знаю такой платформы, \n"
                                  "попробуй ввести только /add_acc")
@@ -176,6 +183,9 @@ async def message_add_vk_acc_handler(message: Message, state: FSMContext) -> Non
 async def message_add_spotify_acc_handler(message: Message, state: FSMContext) -> None:
     await spotify_login(message, state)
 
+@dp.message(F.text.in_(yandex_names))
+async def message_add_spotify_acc_handler(message: Message, state: FSMContext) -> None:
+    await yandex_handler(message, state)
 
 #обработка состояния ожидания логина и пароля от вк
 @dp.message(VkLogin.waiting_for_credentials)
@@ -250,6 +260,21 @@ async def spotify_login(message, state):
                         reply_markup=builder.as_markup())
     await state.set_state(SpotifyLogin.waiting_for_link)
 
+async def yandex_handler(message : Message, state):
+    global auth_yandex
+    instruction = YandexManager.instruct()
+    await message.reply(instruction)
+    await state.set_state(YandexLogin.waiting_for_token)
+
+@dp.message(YandexLogin.waiting_for_token)
+async def yandex_login(message : Message, state):
+    try:
+        Client(auth_yandex).init()
+    except UnauthorizedError:
+        await message.reply(f'Неверный код, попробуй снова')
+        logger.error('Couldnt log intp yandex music')
+    await message.reply("Вы успешно авторизовались в Yandex music! Что ты хочешь сделать?")
+    logger.info('Logged into yandex music')
 
 #добавление нового аккаунта
 
@@ -257,7 +282,8 @@ async def add_acc(message):
     keyboard_add_acc = ReplyKeyboardBuilder()
     button_vk = KeyboardButton(text="VK")
     button_spotify = KeyboardButton(text="Spotify")
-    keyboard_add_acc.add(button_vk, button_spotify)
+    button_yandex = KeyboardButton(text="Yandex")
+    keyboard_add_acc.add(button_vk, button_spotify, button_yandex)
     text_add_acc = ("Выбери платформу для авторизации")
     await message.answer(text_add_acc, reply_markup=keyboard_add_acc.as_markup(resize_keyboard=True))
 
