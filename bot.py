@@ -19,7 +19,7 @@ from auto.vk_manager import VKMusicManager
 from config import TELEGRAM_TOKEN, VK_APP_ID
 
 import spotipy
-
+import vk_api
 from models import Database
 
 logging.basicConfig(level=logging.INFO)
