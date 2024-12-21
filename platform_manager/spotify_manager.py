@@ -1,43 +1,48 @@
 import requests
 import logging
 from urllib.parse import urlencode
-from config import SPOTIFY_APP_ID, SPOTIFY_REDIRECT_URI
+from config import SPOTIFY_REDIRECT_URI, SPOTIFY_APP_ID, SPOTIFY_SECRET_KEY
 from models import Database
+
+import spotipy
+from spotipy import SpotifyOAuth
 
 logging.basicConfig(level=logging.INFO)
 
-class SpotifySync:
+class SpotifyManager:
     AUTH_URL = "https://accounts.spotify.com/authorize"
     API_BASE_URL = "https://api.spotify.com/v1"
 
     def __init__(self, database: Database):
         self.db = database
 
-    def get_auth_url(self, user_id):
+    def get_auth_url(self):
         """
         Генерируем URL для авторизации пользователя через Implicit Grant Flow.
         """
-        params = {
-            "client_id": SPOTIFY_APP_ID,
-            "response_type": "token",
-            "redirect_uri": SPOTIFY_REDIRECT_URI,
-            "scope": "playlist-read-private playlist-read-collaborative",
-            "state": user_id,
-        }
-        auth_url = f"{self.AUTH_URL}?{urlencode(params)}"
-        logging.info(f"Generated auth URL for user {user_id}: {auth_url}")
-        return auth_url
+        scope = 'playlist-read-collaborative playlist-read-private playlist-modify-public playlist-modify-private'
+
+        auth_spotify = SpotifyOAuth(client_id=SPOTIFY_APP_ID,
+                                    client_secret=SPOTIFY_SECRET_KEY,
+                                    redirect_uri=SPOTIFY_REDIRECT_URI,
+                                    scope=scope,
+                                    cache_handler=spotipy.cache_handler.CacheFileHandler(cache_path=".spotifycache"))
+        return auth_spotify
 
     def save_token(self, user_id, token):
-        """
-        Сохраняем токен в базе данных.
-        """
-        self.db.save_token(user_id, "spotify", token)
-
+        try:
+            token_info = auth_manager.get_access_token(token)
+        except SpotifyOauthError:
+            bot.send_message(message.chat.id,
+                             f'Неверный код, попробуй снова')
+            logger.error('Couldnt log into spotify')
+            bot.register_next_step_handler(message, main)
+            return
+"""
     def get_user_playlists(self, user_id):
-        """
+        
         Получаем список плейлистов пользователя.
-        """
+        
         token = self.db.get_token(user_id, "spotify")
         if not token:
             raise ValueError("Spotify token not found for user.")
@@ -58,9 +63,9 @@ class SpotifySync:
         return [{"name": playlist["name"], "id": playlist["id"]} for playlist in playlists]
 
     def get_playlist_tracks(self, user_id, playlist_id):
-        """
+        
         Получаем список треков из выбранного плейлиста.
-        """
+        
         token = self.db.get_token(user_id, "spotify")
         if not token:
             raise ValueError("Spotify token not found for user.")
@@ -87,4 +92,4 @@ class SpotifySync:
                 "title": track["name"]
             })
 
-        return track_list
+        return track_list"""

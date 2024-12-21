@@ -3,8 +3,8 @@ import sqlite3
 from models import Database
 
 from unittest.mock import MagicMock, patch
-from auto.spotify_manager import SpotifySync
-from auto.vk_manager import VKSync
+from platform_manager.spotify_manager import SpotifySync
+from platform_manager.vk_manager import VKSync
 
 @pytest.fixture
 def mock_database():
