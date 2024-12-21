@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from spotipy import SpotifyOauthError
 from yandex_music.exceptions import UnauthorizedError
 from yandex_music import Client
 from models import Database
@@ -33,6 +34,8 @@ dp = Dispatcher(storage=MemoryStorage())
 vk_code = None
 auth_spotify = None
 auth_yandex = None
+sp_manager = None
+user_info = None
 
 platforms = {
     "Spotify" : False,
@@ -59,6 +62,11 @@ class YandexLogin(StatesGroup):
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message, state: FSMContext) -> None:
+    global auth_spotify
+    global auth_yandex
+    global sp_manager
+    global vk_code
+    global user_info
     kb = [[KeyboardButton(text="Добавить аккаунт")]]
     keyboard_start = ReplyKeyboardMarkup(keyboard=kb)
     text_start = (f"👋 Привет, {message.from_user.full_name}! \n"
@@ -138,42 +146,24 @@ async def choose_vk_playlist(message: Message, state: FSMContext, vk_session):
 
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в Spotify")
 async def choose_spotify_playlist(message: Message, state: FSMContext):
-    try:
-        if not auth_spotify:
-            await message.answer("Ошибка с токеном")
-            return
-        spotify = spotipy.Spotify(auth=auth_spotify)
-        user_data = spotify.current_user()
-        if not user_data:
-            await message.answer("Токен есть а данных нет:(")
-            return
-        user_spotify_id = user_data.get('id')
-        if not user_spotify_id:
-            await message.answer("Данные есть id нет")
-            return
-        playlists_response = spotify.user_playlists(user_spotify_id)
-        if not playlists_response or 'items' not in playlists_response:
-            await message.answer("Не удалось получить плейлисты")
-            return
-        playlists = playlists_response['items']
+    global sp_manager
+    user_data = sp_manager.current_user()
+    playlists = sp_manager.user_playlists(user_data['id'])['items']
+    all_pl = [i['name'] for i in playlists]
 
-        if not playlists:
-            await message.answer("У тебя нет плейлистов в спотике")
-            return
-        builder = InlineKeyboardBuilder()
-        for playlist in playlists:
-            name = playlist['name']
-            url = playlist['uri']
-            if url:
-                builder.add(InlineKeyboardButton(text=name, url=url))
-        await message.answer(
-            'Тыкни на нужный плейлист и пришли мне ссылку на него',
-            reply_markup=builder.as_markup(),
-        )
+    if not all_pl:
+        await message.answer('У тебя нет плейлистов, попробуй позже.')
         await state.set_state(ChoosePlaylist.choosing_playlist)
-    except Exception as e:
-        logging.error(f"Ошибка при обработке плейлистов Spotify: {e}")
-        await message.answer("Ошибка при получении плейлистов:(")
+        return
+
+    all_pl_text = '\n'.join(all_pl)
+    await message.answer(
+        f'Все плейлисты :\n'
+        f'{all_pl_text}\n'
+        f'\n'
+        f'Введи название Spotify плейлиста, список песен для которого ты хочешь получить'
+    )
+    await state.set_state(ChoosePlaylist.choosing_playlist)
 
 @dp.message(F.text.in_(vk_names))
 async def message_add_vk_acc_handler(message: Message, state: FSMContext) -> None:
@@ -213,16 +203,41 @@ async def process_credentials(message: Message, state: FSMContext):
 
 @dp.message(SpotifyLogin.waiting_for_link)
 async def save_token(message: Message, state: FSMContext):
+    global sp_manager
     global platforms
+    global user_info
+    global auth_spotify
     spotify_code = message.text
-    f = spotify_sync.save_token(message.from_user.id, spotify_code, auth_spotify)
-    platforms["Spotify"] = True
-    await message.answer("Супер! Ты злогинился в спотике!")
-    await extra_acc(message)
-    if not f:
+    try:
+        token_info = auth_spotify.get_access_token(spotify_code)
+    except SpotifyOauthError:
         await message.answer("Неверный токен, порпробуй снова")
         await state.set_state(SpotifyLogin.waiting_for_link)
+        logger.error('Couldnt log into spotify')
+        return
 
+    sp = spotipy.Spotify(auth=token_info['access_token'])
+    logger.info('Logged into spotify')
+    user_info = sp.current_user()
+    sp_manager = spotipy.Spotify(auth=token_info['access_token'])
+    user_info = sp_manager.current_user()
+    platforms["Spotify"] = True
+    await message.answer(f"Привет {user_info['display_name']}) Супер! Ты залогинился в спотике!")
+    await extra_acc(message)
+
+
+@dp.message(YandexLogin.waiting_for_token)
+async def yandex_login(message : Message, state):
+    global auth_yandex
+    auth_yandex = message.text
+    try:
+        Client(auth_yandex).init()
+    except UnauthorizedError:
+        await message.reply(f'Неверный код, попробуй снова')
+        logger.error('Couldnt log intp yandex music')
+    platforms["Yandex"] = True
+    await message.reply("Вы успешно авторизовались в Yandex music! Что ты хочешь сделать?")
+    logger.info('Logged into yandex music')
 
 
 ##непон
@@ -247,6 +262,7 @@ async def vk_login(message, state):
 
 async def spotify_login(message, state):
     global auth_spotify
+    spotify_sync.logout()
     auth_spotify = spotify_sync.get_auth_url()
     auth_url = auth_spotify.get_authorize_url()
     builder = InlineKeyboardBuilder()
@@ -261,20 +277,11 @@ async def spotify_login(message, state):
     await state.set_state(SpotifyLogin.waiting_for_link)
 
 async def yandex_handler(message : Message, state):
-    global auth_yandex
     instruction = YandexManager.instruct()
     await message.reply(instruction)
     await state.set_state(YandexLogin.waiting_for_token)
 
-@dp.message(YandexLogin.waiting_for_token)
-async def yandex_login(message : Message, state):
-    try:
-        Client(auth_yandex).init()
-    except UnauthorizedError:
-        await message.reply(f'Неверный код, попробуй снова')
-        logger.error('Couldnt log intp yandex music')
-    await message.reply("Вы успешно авторизовались в Yandex music! Что ты хочешь сделать?")
-    logger.info('Logged into yandex music')
+
 
 #добавление нового аккаунта
 
