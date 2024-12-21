@@ -5,16 +5,14 @@ from config import SPOTIFY_REDIRECT_URI, SPOTIFY_APP_ID, SPOTIFY_SECRET_KEY
 from models import Database
 
 import spotipy
-from spotipy import SpotifyOAuth
+from spotipy import SpotifyOAuth, SpotifyOauthError
 
 logging.basicConfig(level=logging.INFO)
 
 class SpotifyManager:
+
     AUTH_URL = "https://accounts.spotify.com/authorize"
     API_BASE_URL = "https://api.spotify.com/v1"
-
-    def __init__(self, database: Database):
-        self.db = database
 
     def get_auth_url(self):
         """
@@ -29,15 +27,12 @@ class SpotifyManager:
                                     cache_handler=spotipy.cache_handler.CacheFileHandler(cache_path=".spotifycache"))
         return auth_spotify
 
-    def save_token(self, user_id, token):
+    def save_token(self, user_id, token, auth_spotify):
         try:
-            token_info = auth_manager.get_access_token(token)
+            token_info = auth_spotify.get_access_token(token)
+            return True
         except SpotifyOauthError:
-            bot.send_message(message.chat.id,
-                             f'Неверный код, попробуй снова')
-            logger.error('Couldnt log into spotify')
-            bot.register_next_step_handler(message, main)
-            return
+            return False
 """
     def get_user_playlists(self, user_id):
         

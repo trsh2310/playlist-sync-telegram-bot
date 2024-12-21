@@ -31,16 +31,13 @@ dp = Dispatcher(storage=MemoryStorage())
 vk_code = None
 auth_spotify = None
 
-conn = sqlite3.connect('users.db')
-c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS users (
-             id INTEGER PRIMARY KEY AUTOINCREMENT,
-             tg_user_id INTEGER,
-             platform TEXT,
-             login TEXT,
-             password TEXT)''')
-conn.commit()
-spotify_sync = SpotifyManager(conn)
+platforms = {
+    "Spotify" : False,
+    "ВК" : False,
+    "Яндекс" : False
+}
+
+spotify_sync = SpotifyManager()
 
 class ChoosePlaylist(StatesGroup):
     choosing_platform = State()
@@ -89,32 +86,26 @@ async def message_add_acc_handler(message: Message, state: FSMContext) -> None:
 
 @dp.message(F.text == "Готово")
 async def message_done_handler(message: Message, state: FSMContext) -> None:
+    global platforms
     keyboard = ReplyKeyboardBuilder()
-    button_vk = KeyboardButton(text="Плейлисты в VK")
-    button_spotify = KeyboardButton(text="Плейлисты в Spotify")
     accs = []
-    c.execute("SELECT COUNT(*) FROM users WHERE tg_user_id = ? AND platform = ?",
-              (message.from_user.id, "vk"))
-    if c.fetchone()[0] > 0:
-        accs.append("VK Музыка")
-        keyboard.add(button_vk)
+    for plat_name, plat_use in platforms:
+        if plat_use:
+            accs.append(plat_name)
+            keyboard.add(KeyboardButton(text=f"Плейлисты в {plat_name}"))
 
-    token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
-    if token_spotify:
-        accs.append("Spotify")
-        keyboard.add(button_spotify)
-
-    if len(accs) == 1:
-        text = (f"Ты привязал 1 аккаунт в сервисе {accs[0]}\n"
-                "Переходим к выбору плейлиста!")
-    elif len(accs) == 2:
-        text = (f"Ты привязал 2 сервиса: вк и спотик \n"
-                "Выбери платформу, на которой ты хочешь выбрать плейлист")
-    else:
+    if not accs:
         button_add_acc = KeyboardButton(text="Добавить аккаунт")
         keyboard.add(button_add_acc)
         text = ("Дружище, тебя нет подключенных аккаунтов :( \n"
-                "Авторизуйся на платформах и мы продолжим 💋")
+            "Авторизуйся на платформах и мы продолжим 💋")
+    elif len(accs) == 1:
+        text = (f"Ты привязал 1 аккаунт в сервисе {accs[0]}\n"
+                "Переходим к выбору плейлиста!")
+    else:
+        text = (f"Ты привязал {len(accs)} сервиса: вк и спотик \n"
+                "Выбери платформу, на которой ты хочешь выбрать плейлист")
+
 
     await message.answer(text, reply_markup=keyboard.as_markup(resize_keyboard=True))
     await state.set_state(ChoosePlaylist.choosing_platform)
@@ -141,11 +132,10 @@ async def choose_vk_playlist(message: Message, state: FSMContext, vk_session):
 @dp.message(ChoosePlaylist.choosing_platform, F.text == "Плейлисты в Spotify")
 async def choose_spotify_playlist(message: Message, state: FSMContext):
     try:
-        token_spotify = spotify_sync.db.get_token(message.from_user.id, "spotify")
-        if not token_spotify:
+        if not auth_spotify:
             await message.answer("Ошибка с токеном")
             return
-        spotify = spotipy.Spotify(auth=token_spotify)
+        spotify = spotipy.Spotify(auth=auth_spotify)
         user_data = spotify.current_user()
         if not user_data:
             await message.answer("Токен есть а данных нет:(")
@@ -189,6 +179,7 @@ async def message_add_spotify_acc_handler(message: Message, state: FSMContext) -
 #обработка состояния ожидания логина и пароля от вк
 @dp.message(VkLogin.waiting_for_credentials)
 async def process_credentials(message: Message, state: FSMContext):
+    global platforms
     logging.info(f"Processing credentials:")
     try:
         login, password = message.text.split()
@@ -200,6 +191,7 @@ async def process_credentials(message: Message, state: FSMContext):
         )
         vk_session.auth()
         await message.reply("Вы успешно авторизовались в VK!")
+        platforms["ВК"] = True
 
     except vk_api.AuthError as e:
         await message.reply(f"Ошибка авторизации: {e}")
@@ -209,9 +201,14 @@ async def process_credentials(message: Message, state: FSMContext):
 
 @dp.message(SpotifyLogin.waiting_for_link)
 async def save_token(message: Message, state: FSMContext):
-    """обработка URL, который пользователь присылает после авторизации."""
+    global platforms
     spotify_code = message.text
-    f = spotify_sync.save_token(spotify_code)
+    f = spotify_sync.save_token(message.from_user.id, spotify_code, auth_spotify)
+    platforms["Spotify"] = True
+    if not f:
+        await message.answer("Неверный токен, порпробуй снова")
+        await state.set_state(SpotifyLogin.waiting_for_link)
+
 
 
 ##непон
@@ -236,7 +233,6 @@ async def vk_login(message, state):
 
 async def spotify_login(message, state):
     global auth_spotify
-
     auth_spotify = spotify_sync.get_auth_url()
     auth_url = auth_spotify.get_authorize_url()
     builder = InlineKeyboardBuilder()
@@ -246,8 +242,8 @@ async def spotify_login(message, state):
     )
     await message.reply(f"Лови ссылку для авторизации \n"
                         f"После авторизации скопируй ссылку из адресной строки и скинь мне все содержимое после `code=`",
-                        parse_mode='Markdown',
                         reply_markup=builder.as_markup())
+    await state.set_state(SpotifyLogin.waiting_for_link)
 
 
 #добавление нового аккаунта
