@@ -33,10 +33,10 @@ class SpotifyManager:
             return True
         except SpotifyOauthError:
             return False
-"""
+
     def get_user_playlists(self, user_id):
         
-        Получаем список плейлистов пользователя.
+        """Получаем список плейлистов пользователя."""
         
         token = self.db.get_token(user_id, "spotify")
         if not token:
@@ -59,7 +59,7 @@ class SpotifyManager:
 
     def get_playlist_tracks(self, user_id, playlist_id):
         
-        Получаем список треков из выбранного плейлиста.
+        """Получаем список треков из выбранного плейлиста."""
         
         token = self.db.get_token(user_id, "spotify")
         if not token:
@@ -87,4 +87,4 @@ class SpotifyManager:
                 "title": track["name"]
             })
 
-        return track_list"""
+        return track_list
