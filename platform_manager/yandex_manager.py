@@ -15,7 +15,7 @@ logger.addHandler(ch)
 def instruct():
     reg_link = 'https://chromewebstore.google.com/detail/yandex-music-token/lcbjeookjibfhjjopieifgjnhlegmkib'
     instruction = (f"Чтобы зайти в свой аккаунт Yandex Music, выполни следующие действия: \n"
-                    "1. Установи расширение в Google Chrome по  [ссылке] ({reg_link}) \n" +
+                    f"1. Установи расширение в Google Chrome по  [ссылке] ({reg_link}) \n" +
                     "2. Залогинься в свой аккаунт Яндекса через расширение \n"
                     "3. Оно автоматически направит в заблокированного бота, просто закрой его \n"
                     "4. Нажми на иконку расширения в браузере, снизу слева у появившегося окна есть кнопка 'Скопировать токен' \n"
@@ -46,7 +46,7 @@ def new_playlist(playlist, yandex_user, token):
         name = f"{artist} - {title}"
         try:
             best_search = yandex_user.search(name).best.result
-            best_search_artists = ', '.join(best_search.artists)
+            best_search_artists = ', '.join([artist.name for artist in best_search.artists])
 
             if best_search.title == title and best_search_artists == artist:
                 try:

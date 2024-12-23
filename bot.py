@@ -41,6 +41,25 @@ platforms = {
 cur_playlist = None
 not_matched = None
 
+
+def create_keyboard(platforms):
+    buttons = [
+        [KeyboardButton(text="Вывести список песен")]
+    ]
+
+    # Добавляем кнопку "Перенести в Яндекс", если платформа доступна
+    if platforms.get("Яндекс"):
+        buttons.append([KeyboardButton(text="Перенести в Яндекс")])
+
+    # Добавляем кнопку "Перенести в Spotify" (если необходимо)
+    if platforms.get("Spotify"):
+        buttons.append([KeyboardButton(text="Перенести в Spotify")])
+
+    return ReplyKeyboardMarkup(
+        keyboard=buttons,
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 #классы состояний
 class ChoosePlaylist(StatesGroup):
     choosing_platform = State()
@@ -234,7 +253,7 @@ async def choose_playlist(message: Message, state: FSMContext):
 
             if not all_pl:
                 await message.answer('У тебя нет плейлистов, попробуй позже.')
-                await state.set_state(ChoosePlaylist.choosing_playlist)
+                await state.set_state(ChoosePlaylist.choosing_platform)
                 return
 
             all_pl_text = '\n'.join(all_pl)
@@ -242,7 +261,7 @@ async def choose_playlist(message: Message, state: FSMContext):
                 f'Все плейлисты :\n'
                 f'{all_pl_text}\n'
                 f'\n'
-                f'Введи название Spotify плейлиста, список песен для которого ты хочешь получить'
+                f'Введи ссылку на Spotify плейлист, список песен для которого ты хочешь получить'
             )
             await state.set_state(ChoosePlaylist.choosing_playlist_spotify)
         else:
@@ -269,16 +288,16 @@ async def spotify_playlist_options(message, state):
         cur_playlist.from_spotify(url, spotify_user)
     except ValueError:
         await message.answer("Ты ввел неправильную ссылку на плейлист. Попробуй снова")
-        state.set_state(ChoosePlaylist.choosing_playlist_spotify)
+        await state.set_state(ChoosePlaylist.choosing_playlist_spotify)
         return
     cur_playlist.from_spotify(url, spotify_user)
     global platforms
     text = f"Что сделаем с плейлистом *{cur_playlist.name}*?"
     kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Вывести список песен")]])
     if platforms["Яндекс"]:
-        kb.add(KeyboardButton(text=f"Перенести в Яндекс"))
+        kb = create_keyboard(platforms)
     await message.answer(text, reply_markup=kb)
-    state.set_state(ChoosePlaylist.choosing_action)
+    await state.set_state(ChoosePlaylist.choosing_action)
 
 @dp.message(ChoosePlaylist.choosing_playlist_yandex) #выбор действий с плейлистом в яндексе
 async def yandex_playlist_options(message, state):
@@ -289,17 +308,23 @@ async def yandex_playlist_options(message, state):
     try:
         yandex_user = Client(yandex_token).init()
         cur_playlist.from_yandex(url, yandex_user)
+        print(yandex_user)
     except ValueError:
         await message.answer("Ты ввел неправильную ссылку на плейлист. Попробуй снова")
-        state.set_state(ChoosePlaylist.choosing_playlist_yandex)
+        await state.set_state(ChoosePlaylist.choosing_playlist_yandex)
         return
     global platforms
     text = f"Что сделаем с плейлистом *{cur_playlist.name}*?"
     kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Вывести список песен")]])
+    await message.answer(text, reply_markup=kb)
+    await state.set_state(ChoosePlaylist.choosing_action)  # Это должно быть после ответа пользователю.
+
+    print(f"Текущая ссылка: {url}")
+    print(f"Состояние: {await state.get_state()}")
     if platforms["Spotify"]:
         kb.add(KeyboardButton(text=f"Перенести в Spotify"))
     await message.answer(text, reply_markup=kb)
-    state.set_state(ChoosePlaylist.choosing_action)
+    await state.set_state(ChoosePlaylist.choosing_action)
 
 @dp.message(ChoosePlaylist.choosing_playlist_vk) #выбор действий с плейлистом в вк
 async def vk_playlist_options(message, state):
@@ -310,7 +335,7 @@ async def vk_playlist_options(message, state):
         cur_playlist.from_vk(name, vk_user)
     except ValueError:
         await message.answer("Ты ввел неправильную ссылку на плейлист. Попробуй снова")
-        state.set_state(ChoosePlaylist.choosing_playlist_vk)
+        await state.set_state(ChoosePlaylist.choosing_playlist_vk)
         return
     global platforms
     text = f"Что сделаем с плейлистом *{cur_playlist.name}*?"
@@ -320,7 +345,7 @@ async def vk_playlist_options(message, state):
             if plat_use:
                 kb.add(KeyboardButton(text=f"Перенести в {plat_name}"))
     await message.answer(text, reply_markup=kb)
-    state.set_state(ChoosePlaylist.choosing_action)
+    await state.set_state(ChoosePlaylist.choosing_action)
 
 ###реализация действий с выбранным плейлистом
 @dp.message(ChoosePlaylist.choosing_action) #выбор действий с плейлистом
@@ -331,19 +356,19 @@ async def playlist_options(message, state):
                              "Тыкни /home")
         return
     if message.text == "Вывести список песен":
-        state.set_state(ChoosePlaylist.none)
+        await state.set_state(ChoosePlaylist.none)
         text = f"*{cur_playlist.name}* \n"
         for (artist, track) in cur_playlist.tracks:
             text += f"{artist} - {track}\n"
         await message.answer(text=text, parse_mode="Markdown")
     elif message.text == "Перенести в ВК":
-        state.set_state(ChoosePlaylist.choosing_action)
+        await state.set_state(ChoosePlaylist.choosing_action)
         await message.answer("К сожалению, я такое не умею, \n"
                              "Пожалуйста, выбери другое действие")
     elif message.text == "Перенести в Яндекс":
         global yandex_user, yandex_token, not_matched
         if platforms["Яндекс"]:
-            state.set_state(ChoosePlaylist.none)
+            await state.set_state(ChoosePlaylist.none)
             await message.answer(f"Начинаю перенос плейлиста из {cur_playlist.platform} в Яндекс Музыку...")
             try:
                 not_found = Y.new_playlist(cur_playlist, yandex_user, yandex_token)
@@ -360,7 +385,7 @@ async def playlist_options(message, state):
     elif message.text == "Перенести в Spotify":
         global spotify_user
         if platforms["Spotify"]:
-            state.set_state(ChoosePlaylist.none)
+            await state.set_state(ChoosePlaylist.none)
             await message.answer(f"Начинаю перенос плейлиста из {cur_playlist.platform} в Spotify...")
             try:
                 S.new_playlist(cur_playlist, spotify_user)
@@ -395,7 +420,7 @@ async def spotify_login(message, state):
         url=auth_url)
     )
     await message.reply(f"Лови ссылку для авторизации \n"
-                        f"После авторизации скопируй ссылку из адресной строки и скинь мне все содержимое после *code=*",
+                        f"После авторизации скопируй ссылку из адресной строки и скинь мне все содержимое после code=",
                         parse_mode="Markdown",
                         reply_markup=builder.as_markup())
     await state.set_state(SpotifyLogin.waiting_for_link)

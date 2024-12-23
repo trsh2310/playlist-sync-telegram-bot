@@ -13,7 +13,6 @@ class Playlist:
         self.tracks = []
         self.platform = None
 
-    #обработка плейлиста из спотифая
     def from_spotify(self, url, spotify_user):
         uri = self.spotify_url_parser(url)
         try:
@@ -25,21 +24,34 @@ class Playlist:
             logging.error(f"Ошибка при получении плейлиста из Spotify: {e}")
             raise Exception("Ошибка при получении плейлиста из Spotify.")
 
-        self.name = current_playlist['name']
+        # Присваиваем имя и платформу
+        self.name = ""
         self.platform = "Spotify"
-        self.tracks = []
 
-        for i in current_playlist['items']:
+        # Собираем список песен
+        self.tracks = self.get_playlist_tracks(current_playlist)
+        print (self.tracks)
+
+    # Получаем список треков в формате "artist - track name"
+    from typing import List, Tuple
+
+    def get_playlist_tracks(self, current_playlist) -> List[Tuple[str, str]]:
+        playlist_with_items = []
+        for pl in current_playlist['items']:
             try:
-                track_artists = ", ".join(i['track']['artists'])
-                track_name = i['track']['name']
-                self.tracks.append((track_artists, track_name))
+                # Собираем список артистов
+                artists = ", ".join([artist['name'] for artist in pl['track']['artists']])
+                track_name = pl['track']['name']
+
+                # Добавляем кортеж (артисты, название трека) в список
+                playlist_with_items.append((artists, track_name))
             except KeyError as e:
                 logging.error(f"Ошибка в структуре данных трека: {e}")
                 continue  # Пропускаем трек, если есть ошибка в данных
             except Exception as e:
                 logging.error(f"Неизвестная ошибка при обработке трека: {e}")
                 continue  # Пропускаем трек, если произошла непредвиденная ошибка
+        return playlist_with_items
 
     @staticmethod
     def spotify_url_parser(playlist_url):
@@ -51,7 +63,6 @@ class Playlist:
         else:
             raise ValueError("Invalid Spotify playlist link")
 
-    # обработка плейлиста из яндекса
     # обработка плейлиста из яндекса
     def from_yandex(self, url, yandex_user):
         yandex_user_id, yandex_playlist_id = self.yandex_url_parser(url)
@@ -71,6 +82,19 @@ class Playlist:
             track_name = i.track.title
             self.tracks.append((track_artists, track_name))
 
+    def extract_yandex_album_id(url: str) -> str:
+        """
+        Извлекает идентификатор альбома из ссылки на Яндекс.Музыку.
+
+        :param url: Строка с URL альбома на Яндекс.Музыке
+        :return: Идентификатор альбома (строка) или None, если идентификатор не найден
+        """
+        pattern = r"https://music\.yandex\.ru/album/(\d+)"
+        match = re.match(pattern, url)
+        if match:
+            return match.group(1)
+        else:
+            return None
     @staticmethod
     def yandex_url_parser(playlist_url):
         pattern = r"https://music\.yandex\.(?:ru|com)/users/([^/]+)/playlists/(\d+)"
