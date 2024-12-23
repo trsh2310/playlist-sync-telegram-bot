@@ -241,3 +241,6 @@ fabric.properties
 
 # API keys
 config.py
+
+#cache
+.spotifycache

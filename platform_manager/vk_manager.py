@@ -1,25 +1,35 @@
 import logging
+from vk_api.audio import VkAudio
+from vk_api.exceptions import VkApiError
+
+# Настройка логирования
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 class VKMusicManager:
-    def __init__(self, vk_session):
-        self.vk_session = vk_session
-        self.vk = vk_session.get_api()
+    def __init__(self, session):
+        self.session = session
+        self.api = session.get_api()
+        self.audio = VkAudio(session)
 
-    def list_playlists(self):
+    def get_playlists(self):
         try:
-            response = self.vk.audio.getPlaylists()
-            playlists = response.get('items', [])
-            return [(playlist['title'], playlist['id']) for playlist in playlists]
-        except Exception as e:
-            logger.error(f"Error fetching playlists: {e}")
+            user_id = self.session.get_api().users.get()[0]['id']
+            playlists = self.audio.get_albums(user_id)
+            if not playlists:
+                logger.warning("Плейлисты не найдены для пользователя.")
+            return playlists
+        except VkApiError as e:
+            logger.error(f"Ошибка при взаимодействии с VK API: {e}")
             return []
-
-    def list_songs_in_playlist(self, owner_id, playlist_id):
-        try:
-            response = self.vk.audio.get(owner_id=owner_id, album_id=playlist_id)
-            songs = response.get('items', [])
-            return [(song['title'], song['artist']) for song in songs]
+        except KeyError as e:
+            logger.error(f"Ошибка при получении данных пользователя: {e}")
+            return []
         except Exception as e:
-            logger.error(f"Error fetching songs: {e}")
+            logger.exception(f"Неизвестная ошибка при получении плейлистов: {e}")
             return []
