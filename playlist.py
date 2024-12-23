@@ -52,23 +52,24 @@ class Playlist:
             raise ValueError("Invalid Spotify playlist link")
 
     # обработка плейлиста из яндекса
+    # обработка плейлиста из яндекса
     def from_yandex(self, url, yandex_user):
         yandex_user_id, yandex_playlist_id = self.yandex_url_parser(url)
         try:
-            current_playlist = yandex_user.users_playlists(yandex_playlist_id, yandex_user_id)
+            pl = yandex_user.users_playlists(yandex_playlist_id, yandex_user_id)
         except:
             raise ValueError
-        self.name = current_playlist.name
+        self.name = pl.title
         self.platform = "Яндекс"
         self.tracks = []
-        for i in current_playlist.tracks:
-            try:
-                artists = [j[1] for j in i.track.artists]
-                track_artists = ", ".join(artists)
-                track_name = i.track.title
-                self.tracks.append((track_artists, track_name))
-            except:
-                continue
+        for i in pl.tracks:
+            track_artists = ''
+            for j, artist in enumerate(i.track.artists):
+                if j != 0:
+                    track_artists += ', '
+                track_artists += artist.name
+            track_name = i.track.title
+            self.tracks.append((track_artists, track_name))
 
     @staticmethod
     def yandex_url_parser(playlist_url):

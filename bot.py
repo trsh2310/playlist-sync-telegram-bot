@@ -228,33 +228,30 @@ async def choose_playlist(message: Message, state: FSMContext):
         if platforms["Spotify"]:
             global spotify_user
             print(spotify_user)
-            err, playlists = S.get_playlists(spotify_user)
-            if err:
-                await message.answer("Ошибка при получении плейлистов")
+            user_data = spotify_user.current_user()
+            playlists = spotify_user.user_playlists(user_data['id'])['items']
+            all_pl = [i['name'] for i in playlists]
+
+            if not all_pl:
+                await message.answer('У тебя нет плейлистов, попробуй позже.')
+                await state.set_state(ChoosePlaylist.choosing_playlist)
                 return
-            if not playlists:
-                await message.answer("У тебя нет плейлистов в спотике, к которым я могу получить доступ")
-                return
-            builder = InlineKeyboardBuilder()
-            for playlist in playlists:
-                name = playlist['name']
-                url = playlist['url']
-                builder.row(InlineKeyboardButton(
-                    text=name,
-                    url=url)
-                )
-            await state.set_state(ChoosePlaylist.choosing_playlist_spotify)
+
+            all_pl_text = '\n'.join(all_pl)
             await message.answer(
-                'Тыкни на нужный плейлист и пришли мне ссылку на него',
-                reply_markup=builder.as_markup(),
+                f'Все плейлисты :\n'
+                f'{all_pl_text}\n'
+                f'\n'
+                f'Введи название Spotify плейлиста, список песен для которого ты хочешь получить'
             )
+            await state.set_state(ChoosePlaylist.choosing_playlist_spotify)
         else:
             await message.answer("Чтобы получить доступ к плейлистам, нужно залогиниться! \n"
                                  "Используй команду /add_acc")
 
     elif message.text == "Плейлисты в Яндекс":
         if platforms["Яндекс"]:
-            await state.set_state(ChoosePlaylist.choosing_playlist_spotify)
+            await state.set_state(ChoosePlaylist.choosing_playlist_yandex)
             await message.answer(
                 'Пришли ссылку на свой плейлист в Яндекс Музыке',
                 )
