@@ -1,11 +1,8 @@
 import unittest
 from unittest.mock import MagicMock
 
-from spotipy import SpotifyException
-from vk_api import VkApiError
-
-from platform_manager.spotify_manager import get_playlists, new_playlist
-from platform_manager.vk_manager import VKMusicManager
+import platform_manager.spotify_manager as S
+import platform_manager.yandex_manager as Y
 from playlist import Playlist
 
 
@@ -55,7 +52,7 @@ class TestSpotifyFunctions(unittest.TestCase):
     def test_get_playlists_success(self):
         self.mock_spotify_user.current_user.return_value = {'id': 'test_user'}
         self.mock_spotify_user.user_playlists.return_value = {'items': [{'name': 'Test Playlist'}]}
-        error, playlists = get_playlists(self.mock_spotify_user)
+        error, playlists = S.get_playlists(self.mock_spotify_user)
         self.assertFalse(error)
         self.assertEqual(playlists, [{'name': 'Test Playlist'}])
 
@@ -70,7 +67,29 @@ class TestSpotifyFunctions(unittest.TestCase):
             'tracks': {'items': [{'uri': 'test_uri'}]}
         }
         self.mock_spotify_user.user_playlist_create.return_value = {'id': 'new_playlist_id'}
-        new_playlist(playlist_mock, self.mock_spotify_user)
+        S.new_playlist(playlist_mock, self.mock_spotify_user)
         self.mock_spotify_user.playlist_add_items.assert_called_once_with(
             playlist_id='new_playlist_id', items=['test_uri']
+        )
+
+class TestYandexMusicFunctions(unittest.TestCase):
+    def setUp(self):
+        self.mock_yandex_user = MagicMock()
+
+    def test_new_playlist_creation(self):
+        playlist_mock = MagicMock()
+        playlist_mock.name = "Test Playlist"
+        playlist_mock.platform = "Yandex"
+        playlist_mock.tracks = [("Test Artist", "Test Track")]
+
+        # Подготавливаем mock для метода users_playlists_create
+        self.mock_yandex_user.users_playlists_create.return_value = MagicMock(kind='new_playlist_id')
+
+        # Вызываем функцию new_playlist
+        not_found = Y.new_playlist(playlist_mock, self.mock_yandex_user, 'test_token')
+
+        # Проверяем результат
+        self.assertEqual(not_found, [])
+        self.mock_yandex_user.users_playlists_create.assert_called_once_with(
+            "Test Playlist from Yandex", visibility='private', user_id='test_token'
         )
